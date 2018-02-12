@@ -4,9 +4,7 @@ import gym
 from scipy.misc import imresize
 # from skimage.color import rgb2xyz
 
-'''Ignoring flickering issues (i.e. max across two steps)
-Reward clipping?
-'''
+'''Ignoring flickering issues (i.e. max across two steps)'''
 
 env = gym.make('BreakoutDeterministic-v4') #FRAME SKIP IMPLEMENTED BY DEFAULT WITH ABOVE!
 
@@ -50,19 +48,3 @@ class EnvWrapper():
 
     def render(self):
         self.env.render()
-
-# envw = EnvWrapper(env, True, 4)
-# obs = env.reset()
-# t = envw._preprocess(obs)
-# stacked = np.stack([t for _ in range(4)],axis=2)
-#
-# print (np.concatenate((stacked,t[...,np.newaxis]),axis=2).shape)
-#
-
-# env = EnvWrapper(env, True, 4)
-# a = env.reset()
-# print (a.shape)
-# for i in range(5):
-#     action = 1 if i==0 else 2
-#     f, _, _, _ = env.step(action)
-#     print (f.shape)
