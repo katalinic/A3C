@@ -1,23 +1,3 @@
-'''when re-writing as class, will need to have it as generic gradient calculation and gradient application form, not optimiser'''
-'''this will facilitate the asynchronous mode'''
-
-'''
-DETAILED TASK BREAKDOWN:
-
-n-step update - done
-Explicit gradient gather and apply - done
-parameter initialisation via external supply - central unit/agent thread communication support - done; needs double agent definition first
-class - done
-asynchronous setting - done
-model saving/restoring - ?
-atari pre-processing - done
-scale up model - done
-learning rate sampling - done
-eps greedy annealing - done
-test on pong/breakout
-'''
-
-
 import gym
 import tensorflow as tf
 import matplotlib.pyplot as plt
