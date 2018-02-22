@@ -22,6 +22,7 @@ class SimpleModel(object):
 class CNNModel(object):
     def __init__(self, obs_size, action_size):
         #for CNN and atari obs should be 84 84 4
+        self.action_size = action_size
         self.x = x = tf.placeholder(tf.float32, [None, *obs_size])
         conv1 = tf.layers.conv2d(x, filters=16, kernel_size=[8,8], strides=(4,4), activation = tf.nn.relu) #20 20 16
         conv2 = tf.layers.conv2d(conv1, filters=32, kernel_size=[4,4], strides=(2,2), activation = tf.nn.relu) #9, 9, 32
@@ -39,6 +40,6 @@ class CNNModel(object):
         # else: return np.argmax(sess.run([self.probs], feed_dict = {self.x : state}))
         else:
             pr = sess.run(self.probs, feed_dict = {self.x : state})
-            action = np.argmax(pr) if np.random.rand()<0.05 else np.random.choice(self.action_size,p=pr.ravel())
+            action = np.argmax(pr) if np.random.rand()>0.05 else np.random.choice(self.action_size)
             return action
 # cnn = CNNModel((84,84,4),4)
