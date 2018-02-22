@@ -5,9 +5,6 @@ import numpy as np
 import sys
 from models import SimpleModel, CNNModel
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"]="-1"
-
 class Worker(object):
     def __init__(self, task, obs_size, action_size, env, learning_rate = 1e-3, gamma=0.99, eps=0.1, beta=0.01):
         self.update_every_k_steps = 5 #initial hardcoding
