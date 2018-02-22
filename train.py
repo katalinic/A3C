@@ -47,6 +47,7 @@ def train(args, server):
     with sv.managed_session(server.target, config=sess_config) as sess, sess.as_default():
 
         if args.train!="inference":
+            reward_tracker = []
             while (T<max_global_steps):
                 T = sess.run(a3c.global_step)
                 a3c.interaction(sess)
@@ -66,7 +67,8 @@ def train(args, server):
                             episode_reward+=reward
                         cumulative_reward += episode_reward
                     print ("Episode {}, Agent Time Step {}, Global Time Step {} - Rewards : {} ".format(a3c.episodes,a3c.t,T, cumulative_reward/30.))
-
+                    reward_tracker.append(cumulative_reward/30.)
+            np.save('reward_progress',np.array(reward_tracker))
         else:
             print ("Running inference.")
             print (sess.run(a3c.global_step))
