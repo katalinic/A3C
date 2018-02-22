@@ -5,9 +5,6 @@ from scipy.misc import imresize
 from gym import Wrapper
 import math
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"]="-1"
-
 class EnvWrapper(Wrapper):
     def __init__(self, env, pre_process = False, frame_stack = 1, noop_max = 30):
         #added for monitoring
