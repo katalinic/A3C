@@ -5,9 +5,6 @@ import preprocessing
 import time
 from gym import wrappers
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"]="-1"
-
 def train(args, server):
 
     T = 0
