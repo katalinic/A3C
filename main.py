@@ -2,8 +2,14 @@ import tensorflow as tf
 from train import train
 from collections import defaultdict
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+
+tf.app.flags.DEFINE_integer("num_workers", 1, "Number of agents")
 tf.app.flags.DEFINE_string("job_name", "", "Either 'ps' or 'worker'")
 tf.app.flags.DEFINE_integer("task", 0, "Index of task within the job")
+tf.app.flags.DEFINE_string("train", "inference", "Either 'train' or 'inference'") #make inference default to prevent accidental training
+tf.app.flags.DEFINE_string("record", "False", "Either 'True' or 'False'") #whether to record - should only be used with inference
 FLAGS = tf.app.flags.FLAGS
 
 
@@ -24,7 +30,7 @@ def build_cluster_def(num_workers, num_ps, port=2222):
 def main(_):
 
     #temporarily testing single agent
-    cluster = build_cluster_def(2, 1)
+    cluster = build_cluster_def(FLAGS.num_workers, 1)
 
     if FLAGS.job_name == 'worker':
         server = tf.train.Server(

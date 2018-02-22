@@ -5,9 +5,11 @@ import numpy as np
 import sys
 from models import SimpleModel, CNNModel
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+
 class Worker(object):
     def __init__(self, task, obs_size, action_size, env, learning_rate = 1e-3, gamma=0.99, eps=0.1, beta=0.01):
-        #location of some of these parameters to be decided
         self.update_every_k_steps = 5 #initial hardcoding
         self.t = 1
         self.episodes = 0
@@ -18,7 +20,6 @@ class Worker(object):
         self.task = task
         self.obs_size = obs_size
         self.action_size = action_size
-        # self.lr = learning_rate
         self.beta = beta #entropy coefficient
 
         worker_device = "/job:worker/task:{}/cpu:0".format(task)
@@ -32,11 +33,12 @@ class Worker(object):
 
         starter_learning_rate = self._logUniformSample()
         self.lr = tf.train.polynomial_decay(starter_learning_rate, self.global_step,
-                                                  20000000, 0, power = 1.)
+                                                  200000000, 0, power = 1.)
 
         with tf.device(worker_device):
             with tf.variable_scope("local"):
-                self.a = tf.placeholder(tf.float32, [None, action_size])
+                # self.a = tf.placeholder(tf.float32, [None, action_size])
+                self.a = tf.placeholder(tf.int32, [None])
                 self.r = tf.placeholder(tf.float32, [None])
                 # self.agent = SimpleModel(obs_size, action_size)
                 self.agent = CNNModel(obs_size, action_size)
@@ -50,9 +52,10 @@ class Worker(object):
 
     def _build_loss(self):
         adv = self.r - self.agent.value
-        logp = -tf.log(tf.reduce_sum(self.agent.probs*self.a,axis=1))
+        # logp = -tf.log(tf.reduce_sum(self.agent.probs*self.a,axis=1))
+        logp = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.agent.probs,labels=self.a)
         pg = tf.reduce_sum(logp*tf.stop_gradient(adv))
-        sq = tf.reduce_sum(tf.square(adv))
+        sq = 0.5*tf.reduce_sum(tf.square(adv))
         #entropy
         entropy = -tf.reduce_sum(self.agent.probs * tf.log(self.agent.probs), 1)
         self.loss = pg+sq-self.beta*entropy
@@ -70,10 +73,10 @@ class Worker(object):
     def _gradient_exchange(self):
         #get worker gradients
         gradients = tf.gradients(self.loss, self.agent.vars)
-        self.gradients, _ = tf.clip_by_global_norm(gradients, 40.0)
+        self.gradients, _ = tf.clip_by_global_norm(gradients, 0.5)
         #synchronisation of parameters
         self.sync_op = tf.group(*[v1.assign(v2) for v1, v2 in zip(self.agent.vars, self.global_agent.vars)])
-        # optimiser = tf.train.AdamOptimizer(self.lr) #the optimiser will have to be manually written
+        # optimiser = tf.train.AdamOptimizer(self.lr)
         optimiser = tf.train.RMSPropOptimizer(learning_rate = self.lr, decay=0.99)
         #apply updates to GLOBAL agent
         self.train_op = optimiser.apply_gradients(zip(self.gradients,self.global_agent.vars))
@@ -85,7 +88,6 @@ class Worker(object):
         actions_taken = []
         t_start = self.t
         if self.done == True or self.t==1:
-            self.noop_counter = 0
             self.episodes += 1
             obs = self.env.reset()
             self.done = False
@@ -96,13 +98,7 @@ class Worker(object):
             val, pr = self.agent.policy_and_value(sess, obs)
             eps = sess.run(self.eps) #changed to global decay
             if self.t==3000: print (pr)
-            action = np.argmax(pr) if np.random.rand()<eps else np.random.choice(self.action_size,p=pr.ravel())
-            if self.noop_counter>30:
-                action = 1
-                self.noop_counter = 0
-            if action != 1:
-                self.noop_counter += 1
-
+            action = np.argmax(pr) if np.random.rand()>eps else np.random.choice(self.action_size)
             states.append(obs)
             actions_taken.append(action)
             state_values.append(val[0])
@@ -126,11 +122,9 @@ class Worker(object):
         actions_taken = actions_taken[:-1]
         R = R[:-1]
         states = states[:-1]
-        actions_taken_one_hot = np.zeros((len(actions_taken),self.action_size))
-        actions_taken_one_hot[np.arange(len(actions_taken)),actions_taken]=1.
-        return np.concatenate(states), R, actions_taken_one_hot
+        return np.concatenate(states), R, actions_taken
 
     @staticmethod
     def _logUniformSample():
-        '''changed from -4 to -2 to -4 to -3 and its breaking rmsprop when too close to -2'''
-        return np.power(10,np.random.rand()-4)
+        #restricted as larger initial learning rate seems to break rmsprop
+        return np.power(10,np.random.rand()*0.5-3.5)
