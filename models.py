@@ -1,9 +1,6 @@
 import tensorflow as tf
 import numpy as np
 
-import os
-os.environ["CUDA_VISIBLE_DEVICES"]="-1"
-
 class SimpleModel(object):
     def __init__(self, obs_size, action_size):
         self.x = x = tf.placeholder(tf.float32, [None, obs_size])
