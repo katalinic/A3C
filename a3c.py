@@ -6,11 +6,10 @@ import sys
 from models import SimpleModel, CNNModel
 
 class Worker(object):
-    def __init__(self, task, obs_size, action_size, env, learning_rate = 1e-3, gamma=0.99, eps=0.1, beta=0.01):
+    def __init__(self, task, obs_size, action_size, env, learning_rate = 1e-3, gamma=0.99, beta=0.01):
         self.update_every_k_steps = 5 #initial hardcoding
         self.t = 1
         self.episodes = 0
-        self.eps = eps #epsilon greedy
         self.env = env
         self.gamma = gamma #discount factor
         self.done = False
@@ -42,10 +41,6 @@ class Worker(object):
                 # self.agent.global_step = self.global_step
                 self._build_loss()
                 self._gradient_exchange()
-
-        end_eps = np.random.choice([0.1,0.01,0.5],p=[0.4,0.3,0.3])
-        self.eps = tf.train.polynomial_decay(1., self.global_step,
-                                                  4000000, end_eps, power = 1.)
 
     def _build_loss(self):
         adv = self.r - self.agent.value
@@ -93,9 +88,8 @@ class Worker(object):
         while (not self.done and t_start-self.t!=self.update_every_k_steps):
             obs = obs.reshape(1,*self.obs_size)
             val, pr = self.agent.policy_and_value(sess, obs)
-            eps = sess.run(self.eps) #changed to global decay
             if self.t==3000: print (pr)
-            action = np.argmax(pr) if np.random.rand()>eps else np.random.choice(self.action_size)
+            action = np.random.choice(self.action_size, p=pr.ravel())
             states.append(obs)
             actions_taken.append(action)
             state_values.append(val[0])
