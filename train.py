@@ -57,7 +57,6 @@ def train(args, server):
                         obs = env.reset()
                         episode_reward = 0
                         done = False
-                        noop_counter = 0
                         while (not done):
                             action = a3c.agent.policy_and_value(sess, obs.reshape(1,*obs_size), 'act')
                             obs, reward, done, info = env.step(action, inference=True)
@@ -73,7 +72,6 @@ def train(args, server):
                 obs = env.reset()
                 episode_reward = 0
                 done = False
-                noop_counter = 0
                 while (not done):
                     env.render()
                     time.sleep(0.01)
