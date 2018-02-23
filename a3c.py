@@ -17,6 +17,7 @@ class Worker(object):
         self.obs_size = obs_size
         self.action_size = action_size
         self.beta = beta #entropy coefficient
+        self.sync_tracker = 0
 
         worker_device = "/job:worker/task:{}/cpu:0".format(task)
         with tf.device(tf.train.replica_device_setter(1, worker_device=worker_device)):
@@ -33,12 +34,9 @@ class Worker(object):
 
         with tf.device(worker_device):
             with tf.variable_scope("local"):
-                # self.a = tf.placeholder(tf.float32, [None, action_size])
+                self.agent = CNNModel(obs_size, action_size)
                 self.a = tf.placeholder(tf.int32, [None])
                 self.r = tf.placeholder(tf.float32, [None])
-                # self.agent = SimpleModel(obs_size, action_size)
-                self.agent = CNNModel(obs_size, action_size)
-                # self.agent.global_step = self.global_step
                 self._build_loss()
                 self._gradient_exchange()
 
@@ -53,12 +51,9 @@ class Worker(object):
         self.loss = pg+sq-self.beta*entropy
 
     def interaction(self, sess):
-        '''Only external method to be called
-        First it synchronises gradients between the worker and the central unit by calling synchronise
-        Then it performs the nstep_rollout, which yields the gradients
-        Then it applies the gradients to the global network by calling update_global
-        '''
-        sess.run(self.sync_op)
+        if self.t // 40000 > self.sync_tracker or self.sync_tracker == 0:
+            sess.run(self.sync_op)
+            self.sync_tracker = self.t // 40000
         X, R, A = self._nstep_rollout(sess)
         sess.run(self.train_op, feed_dict = {self.agent.x : X, self.r : R, self.a : A})
 
@@ -70,8 +65,7 @@ class Worker(object):
         self.sync_op = tf.group(*[v1.assign(v2) for v1, v2 in zip(self.agent.vars, self.global_agent.vars)])
         # optimiser = tf.train.AdamOptimizer(self.lr)
         optimiser = tf.train.RMSPropOptimizer(learning_rate = self.lr, decay=0.99)
-        #apply updates to GLOBAL agent
-        self.train_op = optimiser.apply_gradients(zip(self.gradients,self.global_agent.vars))
+        self.train_op = optimiser.apply_gradients(zip(self.gradients,self.agent.vars))
 
     def _nstep_rollout(self, sess):
         states = []
