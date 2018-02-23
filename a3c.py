@@ -17,7 +17,6 @@ class Worker(object):
         self.obs_size = obs_size
         self.action_size = action_size
         self.beta = beta #entropy coefficient
-        self.sync_tracker = 0
 
         worker_device = "/job:worker/task:{}/cpu:0".format(task)
         with tf.device(tf.train.replica_device_setter(1, worker_device=worker_device)):
