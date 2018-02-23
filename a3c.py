@@ -51,9 +51,7 @@ class Worker(object):
         self.loss = pg+sq-self.beta*entropy
 
     def interaction(self, sess):
-        if self.t // 40000 > self.sync_tracker or self.sync_tracker == 0:
-            sess.run(self.sync_op)
-            self.sync_tracker = self.t // 40000
+        sess.run(self.sync_op)
         X, R, A = self._nstep_rollout(sess)
         sess.run(self.train_op, feed_dict = {self.agent.x : X, self.r : R, self.a : A})
 
@@ -65,7 +63,7 @@ class Worker(object):
         self.sync_op = tf.group(*[v1.assign(v2) for v1, v2 in zip(self.agent.vars, self.global_agent.vars)])
         # optimiser = tf.train.AdamOptimizer(self.lr)
         optimiser = tf.train.RMSPropOptimizer(learning_rate = self.lr, decay=0.99)
-        self.train_op = optimiser.apply_gradients(zip(self.gradients,self.agent.vars))
+        self.train_op = optimiser.apply_gradients(zip(self.gradients,self.global_agent.vars))
 
     def _nstep_rollout(self, sess):
         states = []
