@@ -45,13 +45,13 @@ def train(args, server):
 
         if args.train!="inference":
             reward_tracker = []
+            eval_ind = 0
             while (T<max_global_steps):
                 T = sess.run(a3c.global_step)
                 a3c.interaction(sess)
-                eval_ind = 0
                 '''every 1 million frames evaluate performance on 30 test episodes'''
-                if a3c.t // 1000000 > eval_ind:
-                    eval_ind = a3c.t // 1000000
+                if T // 1000000 > eval_ind:
+                    eval_ind = T // 1000000
                     cumulative_reward = 0
                     for j in range(30):
                         obs = env.reset()
