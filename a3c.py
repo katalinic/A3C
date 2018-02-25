@@ -76,7 +76,7 @@ class Worker(object):
             self.done = False
         else: obs = self.last_state
 
-        while (not self.done and t_start-self.t!=self.update_every_k_steps):
+        while (not self.done and self.t-t_start!=self.update_every_k_steps):
             obs = obs.reshape(1,*self.obs_size)
             val, pr = self.agent.policy_and_value(sess, obs)
             if self.t==3000: print (pr)
