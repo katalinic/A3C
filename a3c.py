@@ -67,7 +67,6 @@ class Worker(object):
     def _nstep_rollout(self, sess):
         states = []
         true_rewards = []
-        state_values = []
         actions_taken = []
         t_start = self.t
         if self.done == True or self.t==1:
@@ -78,33 +77,33 @@ class Worker(object):
 
         while (not self.done and self.t-t_start!=self.update_every_k_steps):
             obs = obs.reshape(1,*self.obs_size)
-            val, pr = self.agent.policy_and_value(sess, obs)
+            pr = self.agent.policy_and_value(sess, obs, 'prob')
             if self.t==3000: print (pr)
             action = np.random.choice(self.action_size, p=pr.ravel())
             states.append(obs)
             actions_taken.append(action)
-            state_values.append(val[0])
             obs, reward, done, info = self.env.step(action)
             sess.run(self.global_step_increment)
             self.t += 1
             true_rewards.append(reward)
             self.done = done
 
-        exp = (states, state_values, actions_taken, true_rewards, done)
-        if self.done != True: self.last_state = obs
+        exp = (states, actions_taken, true_rewards)
+        if self.done != True:
+            self.last_state = obs
+            self.last_value = self.agent.policy_and_value(sess, self.last_state.reshape(1,*self.obs_size), 'value')[0]
+        else: self.last_value = 0
 
         return self._process_experience(exp)
 
     def _process_experience(self, experience):
-        states, state_values, actions_taken, true_rewards, done = experience
-        R = state_values
-        if self.done: R[-1] = 0
-        for i in reversed(range(len(R)-1)):
-            R[i]=self.gamma*R[i+1]+true_rewards[i]
-        actions_taken = actions_taken[:-1]
-        R = R[:-1]
-        states = states[:-1]
-        return np.concatenate(states), R, actions_taken
+        states, actions_taken, true_rewards = experience
+        R = self.last_value
+        discounted_reward = []
+        for r in true_rewards[::-1]:
+            R=r+self.gamma*R
+            discounted_reward.append(R)
+        return np.concatenate(states), discounted_reward, actions_taken
 
     @staticmethod
     def _logUniformSample():

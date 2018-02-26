@@ -5,6 +5,9 @@ import preprocessing
 import time
 from gym import wrappers
 
+import os
+os.environ["CUDA_VISIBLE_DEVICES"]="-1"
+
 def train(args, server):
 
     T = 0
@@ -45,16 +48,16 @@ def train(args, server):
 
         if args.train!="inference":
             reward_tracker = []
-            eval_ind = 0
             while (T<max_global_steps):
                 T = sess.run(a3c.global_step)
                 a3c.interaction(sess)
+                eval_ind = 0
                 '''every 1 million frames evaluate performance on 30 test episodes'''
-                if T // 1000000 > eval_ind:
-                    eval_ind = T // 1000000
+                if a3c.t // 1000000 > eval_ind:
+                    eval_ind = a3c.t // 1000000
                     cumulative_reward = 0
                     for j in range(30):
-                        obs = env.reset()
+                        obs = a3c.env.reset()
                         episode_reward = 0
                         done = False
                         while (not done):
@@ -62,9 +65,10 @@ def train(args, server):
                             obs, reward, done, info = env.step(action, inference=True)
                             episode_reward+=reward
                         cumulative_reward += episode_reward
-                    print ("Episode {}, Agent Time Step {}, Global Time Step {} - Rewards : {} ".format(a3c.episodes,a3c.t,T, cumulative_reward/30.))
+                    print ("Episode {}, Agent Time Step {}, Global Time Step {} - Rewards : {} ".format(a3c.episodes,a3c.t,T, np.round(cumulative_reward/30.,2)))
                     reward_tracker.append(cumulative_reward/30.)
-            np.save('reward_progress',np.array(reward_tracker))
+                    np.save('reward_progress_{}'.format(args.task),np.array(reward_tracker))
+                    a3c.done = True
         else:
             print ("Running inference.")
             print (sess.run(a3c.global_step))

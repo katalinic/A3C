@@ -14,6 +14,10 @@ class SimpleModel(object):
     def policy_and_value(self, sess, state, mode='both'): #if threading runs on single session, can omit passing session
         if mode=='both':
             return sess.run([self.value, self.probs], feed_dict = {self.x : state})
+        elif mode=='value':
+            return sess.run(self.value, feed_dict = {self.x : state})
+        elif mode=='prob':
+            return sess.run(self.probs, feed_dict = {self.x : state})
         else:
             pr = sess.run(self.probs, feed_dict = {self.x : state})
             action = np.random.choice(self.action_size, p=pr.ravel())
@@ -37,7 +41,13 @@ class CNNModel(object):
     def policy_and_value(self, sess, state, mode='both'): #if threading runs on single session, can omit passing session
         if mode=='both':
             return sess.run([self.value, self.probs], feed_dict = {self.x : state})
+        # else: return np.argmax(sess.run([self.probs], feed_dict = {self.x : state}))
+        elif mode=='value':
+            return sess.run(self.value, feed_dict = {self.x : state})
+        elif mode=='prob':
+            return sess.run(self.probs, feed_dict = {self.x : state})
         else:
             pr = sess.run(self.probs, feed_dict = {self.x : state})
             action = np.random.choice(self.action_size, p=pr.ravel())
             return action
+# cnn = CNNModel((84,84,4),4)
