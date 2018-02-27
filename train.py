@@ -4,7 +4,7 @@ import gym
 import preprocessing
 import time
 from gym import wrappers
-
+import numpy as np
 import os
 os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
