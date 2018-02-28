@@ -103,7 +103,7 @@ class Worker(object):
         for r in true_rewards[::-1]:
             R=r+self.gamma*R
             discounted_reward.append(R)
-        return np.concatenate(states), discounted_reward, actions_taken
+        return np.concatenate(states), discounted_reward[::-1], actions_taken
 
     @staticmethod
     def _logUniformSample():
