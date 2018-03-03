@@ -11,7 +11,7 @@ os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 def train(args, server):
 
     T = 0
-    max_global_steps = 100000000
+    max_global_steps = 50000000
 
     #breakout specific
     env = gym.make('BreakoutDeterministic-v4')
