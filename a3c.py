@@ -29,7 +29,7 @@ class Worker(object):
 
         starter_learning_rate = self._logUniformSample()
         self.lr = tf.train.polynomial_decay(starter_learning_rate, self.global_step,
-                                                  200000000, 0, power = 1.)
+                                                  80000000, 0, power = 1.)
 
         with tf.device(worker_device):
             with tf.variable_scope("local"):
@@ -57,11 +57,11 @@ class Worker(object):
     def _gradient_exchange(self):
         #get worker gradients
         gradients = tf.gradients(self.loss, self.agent.vars)
-        self.gradients, _ = tf.clip_by_global_norm(gradients, 0.5)
+        self.gradients, _ = tf.clip_by_global_norm(gradients, 40)
         #synchronisation of parameters
         self.sync_op = tf.group(*[v1.assign(v2) for v1, v2 in zip(self.agent.vars, self.global_agent.vars)])
         # optimiser = tf.train.AdamOptimizer(self.lr)
-        optimiser = tf.train.RMSPropOptimizer(learning_rate = self.lr, decay=0.99)
+        optimiser = tf.train.RMSPropOptimizer(learning_rate = self.lr, decay=0.99, epsilon=1e-1)
         self.train_op = optimiser.apply_gradients(zip(self.gradients,self.global_agent.vars))
 
     def _nstep_rollout(self, sess):
