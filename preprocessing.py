@@ -45,9 +45,6 @@ class EnvWrapper(Wrapper):
         #since upon reset there are no previous frames, we simply stack the 4
         if self.frame_stack > 1:
             self.frames = np.stack([obs for _ in range(self.frame_stack)],axis=2)
-        #     return self.frames
-        # else:
-        #     return obs
 
         #add no-op action section
         noop = np.random.randint(math.ceil(self.noop_max//4))
@@ -62,5 +59,5 @@ class EnvWrapper(Wrapper):
         else:
             return obs
 
-    # def render(self):
-    #     return self.env.render()
+    def render(self):
+        return self.env.render()
