@@ -47,7 +47,7 @@ class Worker(object):
         sq = 0.5*tf.reduce_sum(tf.square(adv))
         #entropy
         entropy = -tf.reduce_sum(self.agent.probs * tf.log(self.agent.probs), 1)
-        self.loss = pg+sq-self.beta*entropy
+        self.loss = pg+0.5*sq-self.beta*entropy
 
     def interaction(self, sess):
         sess.run(self.sync_op)
@@ -60,7 +60,6 @@ class Worker(object):
         self.gradients, _ = tf.clip_by_global_norm(gradients, 40)
         #synchronisation of parameters
         self.sync_op = tf.group(*[v1.assign(v2) for v1, v2 in zip(self.agent.vars, self.global_agent.vars)])
-        # optimiser = tf.train.AdamOptimizer(self.lr)
         optimiser = tf.train.RMSPropOptimizer(learning_rate = self.lr, decay=0.99, epsilon=1e-1)
         self.train_op = optimiser.apply_gradients(zip(self.gradients,self.global_agent.vars))
 
@@ -78,7 +77,6 @@ class Worker(object):
         while (not self.done and self.t-t_start!=self.update_every_k_steps):
             obs = obs.reshape(1,*self.obs_size)
             pr = self.agent.policy_and_value(sess, obs, 'prob')
-            if self.t==3000: print (pr)
             action = np.random.choice(self.action_size, p=pr.ravel())
             states.append(obs)
             actions_taken.append(action)
@@ -105,7 +103,7 @@ class Worker(object):
             discounted_reward.append(R)
         return np.concatenate(states), discounted_reward[::-1], actions_taken
 
-    @staticmethod
-    def _logUniformSample():
-        #restricted as larger initial learning rate seems to break rmsprop
-        return np.power(10,np.random.rand()*0.5-3.5)
+#     @staticmethod
+#     def _logUniformSample():
+#         #restricted as larger initial learning rate seems to break rmsprop
+#         return np.power(10,np.random.rand()*0.5-3.5)
