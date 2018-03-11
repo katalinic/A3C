@@ -10,8 +10,8 @@ class CNNModel(object):
         conv2 = tf.layers.conv2d(conv1, filters=32, kernel_size=[4,4], strides=(2,2), activation = tf.nn.relu) #9, 9, 32
         flattened = tf.reshape(conv2, [-1, 9*9*32])
         z = tf.contrib.layers.fully_connected(flattened, 256, activation_fn = tf.nn.relu)
-        logits = tf.contrib.layers.fully_connected(z, action_size, activation_fn = None)
-        self.probs = tf.nn.softmax(logits)
+        self.logits = tf.contrib.layers.fully_connected(z, action_size, activation_fn = None)
+        self.probs = tf.nn.softmax(self.logits)
         value = tf.contrib.layers.fully_connected(z, 1, activation_fn = None)
         self.value = value[:,0]
         self.vars = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope=tf.get_variable_scope().name)
