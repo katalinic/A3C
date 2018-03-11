@@ -42,7 +42,7 @@ class Worker(object):
     def _build_loss(self):
         adv = self.r - self.agent.value
         # logp = -tf.log(tf.reduce_sum(self.agent.probs*self.a,axis=1))
-        logp = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.agent.probs,labels=self.a)
+        logp = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.agent.logits,labels=self.a)
         pg = tf.reduce_sum(logp*tf.stop_gradient(adv))
         sq = 0.5*tf.reduce_sum(tf.square(adv))
         #entropy
