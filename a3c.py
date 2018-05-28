@@ -20,14 +20,12 @@ class Worker(object):
 
         worker_device = "/job:worker/task:{}/cpu:0".format(task)
         with tf.device(tf.train.replica_device_setter(1, worker_device=worker_device)):
-            with tf.variable_scope("global"):
-                # self.global_agent = SimpleModel(obs_size, action_size)
-                self.global_agent = CNNModel(obs_size, action_size)
-                #any variable under same scope must be added after agent definition, otherwise its instantiation will pull it under itself
+            with tf.variable_scope("global"):               
+                self.global_agent = CNNModel(obs_size, action_size)      
                 self.global_step = tf.get_variable("global_step", [], tf.int32, initializer=tf.constant_initializer(0, dtype=tf.int32), trainable=False)
                 self.global_step_increment = tf.assign_add(self.global_step, tf.constant(1, tf.int32))
 
-        starter_learning_rate = self._logUniformSample()
+        starter_learning_rate = 7e-4
         self.lr = tf.train.polynomial_decay(starter_learning_rate, self.global_step,
                                                   80000000, 0, power = 1.)
 
@@ -41,12 +39,11 @@ class Worker(object):
 
     def _build_loss(self):
         adv = self.r - self.agent.value
-        # logp = -tf.log(tf.reduce_sum(self.agent.probs*self.a,axis=1))
         logp = tf.nn.sparse_softmax_cross_entropy_with_logits(logits=self.agent.logits,labels=self.a)
         pg = tf.reduce_sum(logp*tf.stop_gradient(adv))
         sq = 0.5*tf.reduce_sum(tf.square(adv))
         #entropy
-        entropy = -tf.reduce_sum(self.agent.probs * tf.log(self.agent.probs), 1)
+        entropy = -tf.reduce_sum(self.agent.probs * tf.log(self.agent.probs))
         self.loss = pg+0.5*sq-self.beta*entropy
 
     def interaction(self, sess):
@@ -102,8 +99,3 @@ class Worker(object):
             R=r+self.gamma*R
             discounted_reward.append(R)
         return np.concatenate(states), discounted_reward[::-1], actions_taken
-
-#     @staticmethod
-#     def _logUniformSample():
-#         #restricted as larger initial learning rate seems to break rmsprop
-#         return np.power(10,np.random.rand()*0.5-3.5)
