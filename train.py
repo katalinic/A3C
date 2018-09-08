@@ -5,7 +5,8 @@ import tensorflow as tf
 from a3c import Worker
 import gym
 from gym import wrappers
-import preprocessing
+# import preprocessing
+from tfenv import TFEnv
 
 os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
@@ -17,16 +18,17 @@ def train(args, server):
 
     #breakout specific
     env = gym.make('BreakoutDeterministic-v4')
-    if args.record == "True":
-        def video_callable_fn(ep):
-            return True
-        env = wrappers.Monitor(env, './rec/breakout', video_callable=video_callable_fn, force=True)
-    env = preprocessing.EnvWrapper(env, True, 4)
+    # if args.record == "True":
+    #     def video_callable_fn(ep):
+    #         return True
+    #     env = wrappers.Monitor(env, './rec/breakout', video_callable=video_callable_fn, force=True)
+    # env = preprocessing.EnvWrapper(env, True, 4)
+    tfenv = TFEnv(env)
 
     obs_size = (84, 84, 4)
     action_size = 4
 
-    a3c = Worker(args.task, obs_size, action_size, env)
+    a3c = Worker(args.task, obs_size, action_size, tfenv)
 
     saver = tf.train.Saver()
     variables_to_save = [v for v in tf.global_variables() if not v.name.startswith("local")]

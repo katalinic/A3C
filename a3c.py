@@ -1,4 +1,3 @@
-import sys
 import tensorflow as tf
 import numpy as np
 
@@ -35,6 +34,9 @@ class Worker(object):
                 self.agent = CNNModel(obs_size, action_size)
                 self.a = tf.placeholder(tf.int32, [None])
                 self.r = tf.placeholder(tf.float32, [None])
+                self.env_reset_op = self.env.reset()
+                # Suspect this will throw shape error
+                self.env_step_op = self.env.step(self.a[0])
                 self._build_loss()
                 self._gradient_exchange()
 
@@ -69,7 +71,8 @@ class Worker(object):
         t_start = self.t
         if self.done or self.t == 1:
             self.episodes += 1
-            obs = self.env.reset()
+            # obs = self.env.reset()
+            obs = sess.run(self.env_reset_op)
             self.done = False
         else:
             obs = self.last_state
@@ -79,7 +82,11 @@ class Worker(object):
             action = self.agent.policy_and_value(sess, obs, 'action')
             states.append(obs)
             actions_taken.append(action)
-            obs, reward, done, _ = self.env.step(action)
+            # obs, reward, done, _ = self.env.step(action)
+            with tf.control_dependencies([self.env_step_op]):
+                obs, reward, done = sess.run(
+                    [self.env.obs, self.env.reward, self.env.done],
+                    feed_dict={self.a : [action]})
             sess.run(self.global_step_increment)
             self.t += 1
             true_rewards.append(reward)
