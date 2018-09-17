@@ -1,6 +1,6 @@
+import numpy as np
 import os
 import math
-import numpy as np
 
 import gym
 from gym import Wrapper
@@ -19,11 +19,10 @@ class EnvWrapper(Wrapper):
         self.frame_stack = frame_stack
         self.pre_process = pre_process
         self.noop_max = noop_max
-        self.lum_w = np.array([0.299, 0.587, 0.114])
 
-    def _preprocess(self, M):
-        # y = 0.299 * M[:, :, 0] + 0.587 * M[:, :, 1] + 0.114 * M[:, :, 2]
-        y = M @ self.lum_w
+    @staticmethod
+    def _preprocess(M):
+        y = 0.299 * M[:, :, 0]+ 0.587 * M[:, :, 1] + 0.114 * M[:, :, 2]
         #approximate
         # y = 0.3*M[:,:,0]+0.6*M[:,:,1]+0.1*M[:,:,2]
         rescaled = imresize(y, (84, 84))
@@ -41,7 +40,7 @@ class EnvWrapper(Wrapper):
         if self.frame_stack > 1:
             # Append obs to top of array and remove first.
             self.frames = np.concatenate((self.frames[:, :, 1:], obs[..., np.newaxis]), axis=2)
-            return self.frames, reward, done, info, obs  # Temporarily added obs!
+            return self.frames, reward, done, info
         else:
             return obs, reward, done, info
 
@@ -52,8 +51,7 @@ class EnvWrapper(Wrapper):
             obs = self._preprocess(obs)
         # since upon reset there are no previous frames, we simply stack the 4
         if self.frame_stack > 1:
-            # self.frames = np.stack([obs for _ in range(self.frame_stack)], axis=2)
-            self.frames = np.tile(obs[..., np.newaxis], (1, self.frame_stack))
+            self.frames = np.stack([obs for _ in range(self.frame_stack)], axis=2)
 
         # No-op action section.
         noop = np.random.randint(math.ceil(self.noop_max//4))

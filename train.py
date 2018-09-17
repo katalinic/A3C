@@ -5,30 +5,27 @@ import tensorflow as tf
 from a3c import Worker
 import gym
 from gym import wrappers
-# import preprocessing
-from tfenv import TFEnv
+import preprocessing
 
 os.environ["CUDA_VISIBLE_DEVICES"]="-1"
 
 def train(args, server):
 
     T = 0
-    # max_global_steps = 50000000
-    max_global_steps = 10000
+    max_global_steps = 50000000
 
     #breakout specific
     env = gym.make('BreakoutDeterministic-v4')
-    # if args.record == "True":
-    #     def video_callable_fn(ep):
-    #         return True
-    #     env = wrappers.Monitor(env, './rec/breakout', video_callable=video_callable_fn, force=True)
-    # env = preprocessing.EnvWrapper(env, True, 4)
-    tfenv = TFEnv(env)
+    if args.record == "True":
+        def video_callable_fn(ep):
+            return True
+        env = wrappers.Monitor(env, './rec/breakout', video_callable=video_callable_fn, force=True)
+    env = preprocessing.EnvWrapper(env, True, 4)
 
     obs_size = (84, 84, 4)
     action_size = 4
 
-    a3c = Worker(args.task, obs_size, action_size, tfenv)
+    a3c = Worker(args.task, obs_size, action_size, env)
 
     saver = tf.train.Saver()
     variables_to_save = [v for v in tf.global_variables() if not v.name.startswith("local")]
@@ -51,45 +48,43 @@ def train(args, server):
     with sv.managed_session(server.target, config=sess_config) as sess, sess.as_default():
         if args.train != "inference":
             reward_tracker = []
-            start_time = time.time()
             while T < max_global_steps:
                 T = sess.run(a3c.global_step)
                 if args.task != 1:
                     a3c.interaction(sess)
-            print('Time taken: {}'.format(time.time() - start_time))
-                # eval_ind = 0
-                # '''every 1 million frames evaluate performance on 30 test episodes'''
-                # if T // 1000000 > eval_ind:
-                #     eval_ind = T // 1000000
-                    # cumulative_reward = 0
-                    # for j in range(30):
-                    #     obs = a3c.env.reset()
-                    #     episode_reward = 0
-                    #     done = False
-                    #     while not done:
-                    #         action = a3c.agent.policy_and_value(
-                    #             sess, obs.reshape(1, *obs_size), 'act')
-                    #         obs, reward, done, info = env.step(action, inference=True)
-                    #         episode_reward += reward
-                    #     cumulative_reward += episode_reward
-                    # print("Episode {}, Agent T {}, Global T {} - Rewards : {:.2f} ".format(
-                    #     a3c.episodes, a3c.t, T, cumulative_reward/30.))
-                    # reward_tracker.append(cumulative_reward/30.)
-                    # np.save('reward_progress_{}'.format(args.task), np.array(reward_tracker))
-                    # a3c.done = True
-        # else:
-        #     print("Running inference.")
-        #     print(sess.run(a3c.global_step))
-        #     for test_ep in range(30):
-        #         obs = env.reset()
-        #         episode_reward = 0
-        #         done = False
-        #         while not done:
-        #             env.render()
-        #             time.sleep(0.01)
-        #             action = a3c.agent.policy_and_value(sess, obs.reshape(1, *obs_size), 'act')
-        #             obs, reward, done, info = env.step(action, inference=True)
-        #             episode_reward += reward
-        #         print("Test episode {}, Episode Reward: {}".format(test_ep, episode_reward))
+                eval_ind = 0
+                '''every 1 million frames evaluate performance on 30 test episodes'''
+                if T // 1000000 > eval_ind:
+                    eval_ind = T // 1000000
+                    cumulative_reward = 0
+                    for j in range(30):
+                        obs = a3c.env.reset()
+                        episode_reward = 0
+                        done = False
+                        while not done:
+                            action = a3c.agent.policy_and_value(
+                                sess, obs.reshape(1, *obs_size), 'act')
+                            obs, reward, done, info = env.step(action, inference=True)
+                            episode_reward += reward
+                        cumulative_reward += episode_reward
+                    print("Episode {}, Agent T {}, Global T {} - Rewards : {:.2f} ".format(
+                        a3c.episodes, a3c.t, T, cumulative_reward/30.))
+                    reward_tracker.append(cumulative_reward/30.)
+                    np.save('reward_progress_{}'.format(args.task), np.array(reward_tracker))
+                    a3c.done = True
+        else:
+            print("Running inference.")
+            print(sess.run(a3c.global_step))
+            for test_ep in range(30):
+                obs = env.reset()
+                episode_reward = 0
+                done = False
+                while not done:
+                    env.render()
+                    time.sleep(0.01)
+                    action = a3c.agent.policy_and_value(sess, obs.reshape(1, *obs_size), 'act')
+                    obs, reward, done, info = env.step(action, inference=True)
+                    episode_reward += reward
+                print("Test episode {}, Episode Reward: {}".format(test_ep, episode_reward))
 
     sv.stop()
