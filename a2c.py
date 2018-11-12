@@ -58,7 +58,7 @@ def rollout(env, num_actions):
 
     reset_persistent_state = nest.map_structure(
         lambda p, i: p.assign(i), persistent_state,
-        (init_obs, init_a, init_logit, init_v, init_r, init_d)
+        (init_obs, init_a, init_logit, init_r, init_v, init_d)
         )
 
     first_values = nest.map_structure(lambda v: v.read_value(), persistent_state)
