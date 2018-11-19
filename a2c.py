@@ -1,11 +1,8 @@
-import os
 import time
 
 import tensorflow as tf
 import numpy as np
-
 from tfenv import TFEnv
-
 import gym
 
 nest = tf.contrib.framework.nest
@@ -149,8 +146,8 @@ def optimisation(rollout_outputs):
     done_not_present = tf.cast(tf.equal(dones[0], False), tf.float32)
     with tf.control_dependencies([reset_mask]):
         apply_mask = mask[idx + 1:].assign(
-            (1. - clipped_idx) * (done_not_present -
-            tf.zeros(FLAGS.unroll_length - (idx + 1), tf.float32))
+            (1. - clipped_idx) * (done_not_present
+            - tf.zeros(FLAGS.unroll_length - (idx + 1), tf.float32))
             + clipped_idx * tf.zeros(FLAGS.unroll_length - (idx + 1), tf.float32))
 
     with tf.control_dependencies([apply_mask]):
@@ -159,7 +156,7 @@ def optimisation(rollout_outputs):
     optimiser = tf.train.RMSPropOptimizer(
         learning_rate=FLAGS.learning_rate, decay=FLAGS.rms_decay, epsilon=FLAGS.rms_epsilon)
 
-    gradients = tf.gradients(loss, tf.trainable_variables())
+    gradients = tf.gradients(masked_loss, tf.trainable_variables())
     if FLAGS.grad_clip > 0:
         gradients, _ = tf.clip_by_global_norm(gradients, FLAGS.grad_clip)
 
