@@ -1,10 +1,6 @@
 import tensorflow as tf
-
-# from scipy.misc import imresize
 import cv2
-
 import numpy as np
-import math
 
 class TFEnv(object):
     def __init__(self, env, frame_stack=4, noop=30):
@@ -26,7 +22,6 @@ class TFEnv(object):
 
     def _preprocess(self, x):
         x = tf.einsum('ijk,k->ij', x, self._lum_w)  # 210 160
-        # x = tf.py_func(lambda z: imresize(z, (84, 84), mode='F'), [x], tf.float32)
         x = tf.py_func(lambda z: cv2.resize(z, (84, 84), interpolation=cv2.INTER_AREA),
             [x], tf.float32)
         x /= 255.0
@@ -85,45 +80,3 @@ class TFEnv(object):
     @property
     def done(self):
         return self._done
-
-
-# Tensorflow version
-# import numpy as np
-# import gym
-# env = gym.make('BreakoutDeterministic-v4')
-# TF_env = TFEnv(env, noop=30)
-# sess = tf.Session()
-#
-# env_reset_op = TF_env.reset()
-#
-# # Breakout-specific test.
-# action = tf.random_uniform([1], minval=0, maxval=4, dtype=tf.int32)
-# action = action[0]
-# action = tf.constant(1, tf.int32)
-# env_step_op = TF_env.step(action)
-#
-#
-# sess.run(tf.global_variables_initializer())
-#
-# obs = sess.run(env_reset_op)
-# all_obs = [obs[..., -1]]  # Processed obs received will be in final spot.
-#
-# eps=0
-# while eps<2:
-#     obs, _, done = sess.run([TF_env.obs, env_step_op, TF_env.done])
-#     all_obs.append(obs[..., -1])
-#     if done:
-#         eps+=1
-#         sess.run(env_reset_op)
-# print('here')
-#
-# import matplotlib.pyplot as plt
-# import matplotlib.animation as animation
-#
-# def animate_image(image_arr):
-#     fig = plt.figure()
-#     all_frames = [[plt.imshow(m)] for m in image_arr]
-#     ani = animation.ArtistAnimation(fig, all_frames, interval=200, blit=False, repeat=False)
-#     plt.show()
-#
-# animate_image(all_obs)

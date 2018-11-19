@@ -126,7 +126,7 @@ def optimisation(rollout_outputs):
         return policy_gradient_per_timestep
 
     def advantage_loss(advantages):
-        advantage_loss_per_timestep = 0.5 * tf.square(values)
+        advantage_loss_per_timestep = 0.5 * tf.square(advantages)
         return advantage_loss_per_timestep
 
     def entropy_loss(logits):
