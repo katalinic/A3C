@@ -93,31 +93,30 @@ def rollout(env, num_actions):
 def loss_function(rollout_outputs):
     # All inputs are to be subset, but need last elements of values
     # and done for discounted reward calculation.
-    actions, logits, rewards  = nest.map_structure(
+    actions, logits, rewards = nest.map_structure(
         lambda t: t[:-1], rollout_outputs[:-2])
     values, dones = rollout_outputs[-2:]
     logits = tf.squeeze(logits)
 
     # Discounted reward calculation.
-    def discount(rewards, gamma, values):
+    def discount(rewards, gamma, values, dones):
         tf_gamma = tf.constant(gamma, tf.float32)
         processed_rewards = tf.squeeze(rewards)
         processed_rewards = tf.clip_by_value(processed_rewards, -1, 1)
         processed_rewards = tf.reverse(processed_rewards, axis=[0])
+        reversed_dones = tf.reverse(dones, axis=[0])
         bootstrap_value = values[-1] * tf.to_float(~dones[-1])
         discounted_reward = tf.scan(
-            lambda R, r: r + tf_gamma * R,
-            processed_rewards,
+            lambda R, v: v[0] + tf_gamma * R * tf.to_float(~v[1]),
+            [processed_rewards, reversed_dones],
             initializer=bootstrap_value,
             back_prop=False,
             parallel_iterations=1)
         discounted_reward = tf.reverse(discounted_reward, axis=[0])
         return tf.stop_gradient(discounted_reward)
 
-    # Technically not masking the loss for additional steps beyond done.
-    discounted_targets = discount(rewards, FLAGS.gamma, values)
     dones = dones[:-1]
-    discounted_targets = discounted_targets * tf.to_float(~dones)
+    discounted_targets = discount(rewards, FLAGS.gamma, values, dones)
     values = values[:-1]
     advantages = discounted_targets - values
 
@@ -143,20 +142,18 @@ def loss_function(rollout_outputs):
 
     return loss, dones
 
-def gradient_exchange(loss, agent_vars, shared_vars, learning_rate):
+def gradient_exchange(loss, agent_vars, shared_vars, optimiser):
     # Get worker gradients.
     gradients = tf.gradients(loss, agent_vars)
     gradients, _ = tf.clip_by_global_norm(gradients, FLAGS.grad_clip)
     # Synchronisation of parameters.
     sync_op = tf.group(
         *[v1.assign(v2) for v1, v2 in zip(agent_vars, shared_vars)])
-    optimiser = tf.train.RMSPropOptimizer(
-        learning_rate=learning_rate, decay=FLAGS.rms_decay, epsilon=FLAGS.rms_epsilon)
     train_op = optimiser.apply_gradients(zip(gradients, shared_vars))
     return train_op, sync_op, gradients
 
 class Worker():
-    def __init__(self, env_, scope, global_scope=None):
+    def __init__(self, env_, scope, global_scope=None, optimiser=None, global_step=None):
         num_actions = env_.action_space.n
         self.scope = scope
         if scope == global_scope:
@@ -164,17 +161,9 @@ class Worker():
                 env = TFEnv(env_)
                 self.env_reset = env.reset()
                 self.rollout_outputs, _ = rollout(env, num_actions)
-                self.global_step = tf.get_variable(
-                    "global_step", [], tf.int32,
-                    initializer=tf.constant_initializer(0, dtype=tf.int32),
-                    trainable=False)
         else:
             global_vars = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES, scope=global_scope)
-            self.global_step = tf.get_default_graph().get_tensor_by_name("Global_Net/global_step:0")
-            global_step_increment = tf.assign_add(self.global_step,
-                                                  tf.constant(FLAGS.unroll_length, tf.int32))
-            lr = tf.train.polynomial_decay(FLAGS.learning_rate, self.global_step, FLAGS.max_steps, 0, power=1.)
             with tf.variable_scope(scope):
                 env = TFEnv(env_)
                 self.rollout_outputs, reset_persistent_state = rollout(env, num_actions)
@@ -184,45 +173,56 @@ class Worker():
                     tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
                 loss, self.dones = loss_function(self.rollout_outputs[1:])
                 train_op, sync_op, grads = gradient_exchange(
-                    loss, agent_vars, global_vars, lr)
+                    loss, agent_vars, global_vars, optimiser)
+                global_step_increment = tf.assign_add(
+                    global_step, tf.constant(FLAGS.unroll_length, tf.int32))
                 with tf.control_dependencies([sync_op]):
                     self.train_op = tf.group(train_op, global_step_increment)
 
-    def work(self, sess, coord=None):
+    def work(self, sess, global_step, coord=None):
         start = time.time()
         t, T = 0, 0
         num_rollouts = FLAGS.train_steps // FLAGS.unroll_length
         rollouts_per_worker = num_rollouts // FLAGS.num_workers
         sess.run(self.env_reset)
         while not coord.should_stop() and T < FLAGS.train_steps:
-            _, d, T = sess.run([self.train_op, self.dones, self.global_step])
-            if self.scope[-1] == '0' and t % (rollouts_per_worker // 100) == 0:
-                print(self.scope, t)
+            _, T = sess.run([self.train_op, global_step])
+            # if self.scope[-1] == '0' and t % (rollouts_per_worker // 100) == 0:
+            #     print(self.scope, t)
             t += 1
-            if np.sum(d) > 0:
-                sess.run(self.env_reset)
+            # if np.sum(d) > 0:
+            #     sess.run(self.env_reset)
             # Test.
-            if t > 0 and t % (rollouts_per_worker // 10) == 0:
-                eps = 0
-                total_rewards = 0
-                sess.run(self.env_reset)
-                while eps < FLAGS.test_eps:
-                    outp = sess.run(self.rollout_outputs)
-                    r, d = outp[-3], outp[-1]
-                    total_rewards += np.sum(r[:-1])
-                    if np.sum(d) > 0:
-                        sess.run(self.env_reset)
-                        eps += 1
-                print("Average Reward: {:.2f}".format(total_rewards / FLAGS.test_eps))
+            if t > 0 and t % (rollouts_per_worker // 10) == 0 and FLAGS.test_eps:
+                self.test(sess)
         print(time.time() - start)
+
+    def test(self, sess):
+        print('Testing.')
+        eps = 0
+        total_rewards = 0
+        sess.run(self.env_reset)
+        while eps < FLAGS.test_eps:
+            outp = sess.run(self.rollout_outputs)
+            r, d = outp[-3], outp[-1]
+            total_rewards += np.sum(r[:-1])
+            if np.sum(d[:-1]) > 0:
+                eps += 1
+        print("Average Reward: {:.2f}".format(total_rewards / FLAGS.test_eps))
 
 def train():
     env_ = gym.make(FLAGS.env)
     global_worker = Worker(env_, GLOBAL_NET_SCOPE, GLOBAL_NET_SCOPE)
+    global_step = tf.get_variable("global_step", [], tf.int32,
+        initializer=tf.constant_initializer(0, dtype=tf.int32),
+        trainable=False)
+    lr = tf.train.polynomial_decay(FLAGS.learning_rate, global_step, FLAGS.max_steps, 0, power=1.)
+    optimiser = tf.train.RMSPropOptimizer(
+        learning_rate=lr, decay=FLAGS.rms_decay, epsilon=FLAGS.rms_epsilon)
     workers = []
     for i in range(FLAGS.num_workers):
         env_ = gym.make(FLAGS.env)
-        worker = Worker(env_, 'W_{}'.format(i), GLOBAL_NET_SCOPE)
+        worker = Worker(env_, 'W_{}'.format(i), GLOBAL_NET_SCOPE, optimiser, global_step)
         workers.append(worker)
 
     config = tf.ConfigProto(intra_op_parallelism_threads=1,
@@ -234,7 +234,7 @@ def train():
     coord = tf.train.Coordinator()
     worker_threads = []
     for worker in workers:
-        job = lambda: worker.work(sess, coord)
+        job = lambda: worker.work(sess, global_step, coord)
         t = threading.Thread(target=job)
         t.start()
         worker_threads.append(t)

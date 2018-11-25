@@ -37,10 +37,12 @@ class TFEnv(object):
         processed_obs = self._preprocess(raw_obs)
         stacked_obs = tf.tile(processed_obs, (1, 1, self._frame_stack))  # 84 84 4
         stacked_obs = tf.concat([self._obs[..., 1:], processed_obs], axis=2)
-        return tf.group(
-            self._obs.assign(stacked_obs),
-            self._reward.assign(reward),
-            self._done.assign(done))
+        stacked_obs = tf.cond(done, lambda: self.reset(), lambda: stacked_obs)
+        with tf.control_dependencies([stacked_obs]):
+            return tf.group(
+                self._obs.assign(stacked_obs),
+                self._reward.assign(reward),
+                self._done.assign(done))
 
     def reset(self):
         # No-op.
