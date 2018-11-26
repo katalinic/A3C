@@ -140,7 +140,7 @@ def loss_function(rollout_outputs):
     loss += FLAGS.beta_v * advantage_loss(advantages)
     loss += FLAGS.beta_e * entropy_loss(logits)
 
-    return loss, dones
+    return loss
 
 def gradient_exchange(loss, agent_vars, shared_vars, optimiser):
     # Get worker gradients.
@@ -150,7 +150,7 @@ def gradient_exchange(loss, agent_vars, shared_vars, optimiser):
     sync_op = tf.group(
         *[v1.assign(v2) for v1, v2 in zip(agent_vars, shared_vars)])
     train_op = optimiser.apply_gradients(zip(gradients, shared_vars))
-    return train_op, sync_op, gradients
+    return train_op, sync_op
 
 class Worker():
     def __init__(self, env_, scope, global_scope=None, optimiser=None, global_step=None):
@@ -171,8 +171,8 @@ class Worker():
                     self.env_reset = env.reset()
                 agent_vars = tf.get_collection(
                     tf.GraphKeys.TRAINABLE_VARIABLES, scope=tf.get_variable_scope().name)
-                loss, self.dones = loss_function(self.rollout_outputs[1:])
-                train_op, sync_op, grads = gradient_exchange(
+                loss = loss_function(self.rollout_outputs[1:])
+                train_op, sync_op = gradient_exchange(
                     loss, agent_vars, global_vars, optimiser)
                 global_step_increment = tf.assign_add(
                     global_step, tf.constant(FLAGS.unroll_length, tf.int32))
@@ -190,9 +190,7 @@ class Worker():
             # if self.scope[-1] == '0' and t % (rollouts_per_worker // 100) == 0:
             #     print(self.scope, t)
             t += 1
-            # if np.sum(d) > 0:
-            #     sess.run(self.env_reset)
-            # Test.
+            # Test every 10% of training progress.
             if t > 0 and t % (rollouts_per_worker // 10) == 0 and FLAGS.test_eps:
                 self.test(sess)
         print(time.time() - start)

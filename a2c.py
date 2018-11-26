@@ -1,3 +1,4 @@
+import os
 import time
 
 import tensorflow as tf
@@ -97,22 +98,24 @@ def optimisation(rollout_outputs):
     logits = tf.squeeze(logits)
 
     # Discounted reward calculation.
-    def discount(rewards, gamma):
+    def discount(rewards, gamma, values, dones):
         tf_gamma = tf.constant(gamma, tf.float32)
         processed_rewards = tf.squeeze(rewards)
         processed_rewards = tf.clip_by_value(processed_rewards, -1, 1)
         processed_rewards = tf.reverse(processed_rewards, axis=[0])
+        reversed_dones = tf.reverse(dones, axis=[0])
         bootstrap_value = values[-1] * tf.to_float(~dones[-1])
         discounted_reward = tf.scan(
-            lambda R, r: r + tf_gamma * R,
-            processed_rewards,
+            lambda R, v: v[0] + tf_gamma * R * tf.to_float(~v[1]),
+            [processed_rewards, reversed_dones],
             initializer=bootstrap_value,
             back_prop=False,
             parallel_iterations=1)
         discounted_reward = tf.reverse(discounted_reward, axis=[0])
-        return discounted_reward
+        return tf.stop_gradient(discounted_reward)
 
-    discounted_targets = discount(rewards, FLAGS.gamma)
+    dones = dones[:-1]
+    discounted_targets = discount(rewards, FLAGS.gamma, values, dones)
     values = values[:-1]
     advantages = discounted_targets - values
 
@@ -120,54 +123,37 @@ def optimisation(rollout_outputs):
         cross_entropy_per_timestep = tf.nn.sparse_softmax_cross_entropy_with_logits(
             logits=logits, labels=actions)
         policy_gradient_per_timestep = cross_entropy_per_timestep * tf.stop_gradient(advantages)
-        return policy_gradient_per_timestep
+        return tf.reduce_sum(policy_gradient_per_timestep)
 
     def advantage_loss(advantages):
         advantage_loss_per_timestep = 0.5 * tf.square(advantages)
-        return advantage_loss_per_timestep
+        return tf.reduce_sum(advantage_loss_per_timestep)
 
     def entropy_loss(logits):
         policy = tf.nn.softmax(logits)
         log_policy = tf.nn.log_softmax(logits)
         entropy_per_timestep = - tf.reduce_sum(policy * log_policy, axis=1)
-        return -entropy_per_timestep
+        return tf.reduce_sum(-entropy_per_timestep)
 
     loss = policy_gradient_loss(logits, actions, advantages)
     loss += FLAGS.beta_v * advantage_loss(advantages)
     loss += FLAGS.beta_e * entropy_loss(logits)
 
-    dones = dones[:-1]
-    # Masking sets loss to 0 after first done is encountered.
-    mask = tf.Variable(tf.ones([FLAGS.unroll_length], tf.float32), name='mask')
-    reset_mask = mask.assign(tf.ones([FLAGS.unroll_length], tf.float32))
-
-    idx = tf.argmax(tf.cast(dones, tf.int32), output_type=tf.int32)
-    clipped_idx = tf.cast(tf.clip_by_value(idx, 0, 1), tf.float32)
-    done_not_present = tf.cast(tf.equal(dones[0], False), tf.float32)
-    with tf.control_dependencies([reset_mask]):
-        apply_mask = mask[idx + 1:].assign(
-            (1. - clipped_idx) * (done_not_present
-            - tf.zeros(FLAGS.unroll_length - (idx + 1), tf.float32))
-            + clipped_idx * tf.zeros(FLAGS.unroll_length - (idx + 1), tf.float32))
-
-    with tf.control_dependencies([apply_mask]):
-        masked_loss = tf.reduce_sum(loss * mask)
-
     optimiser = tf.train.RMSPropOptimizer(
         learning_rate=FLAGS.learning_rate, decay=FLAGS.rms_decay, epsilon=FLAGS.rms_epsilon)
 
-    gradients = tf.gradients(masked_loss, tf.trainable_variables())
+    gradients = tf.gradients(loss, tf.trainable_variables())
     if FLAGS.grad_clip > 0:
         gradients, _ = tf.clip_by_global_norm(gradients, FLAGS.grad_clip)
 
     train_op = optimiser.apply_gradients(zip(gradients, tf.trainable_variables()))
 
-    return train_op, dones
+    return train_op
 
 
 def train(env, num_actions):
     rollout_outputs, reset_persistent_state = rollout(env, num_actions)
-    train_op, dones = optimisation(rollout_outputs[1:])
+    train_op = optimisation(rollout_outputs[1:])
     with tf.control_dependencies(nest.flatten(reset_persistent_state)):
         env_reset = env.reset()
     # Train
@@ -179,10 +165,9 @@ def train(env, num_actions):
     sess.run(env_reset)
     num_rollouts = FLAGS.train_steps//FLAGS.unroll_length
     for i in range(num_rollouts + 1):
-        _, d = sess.run([train_op, dones])
-        if np.sum(d) > 0:
-            sess.run(env_reset)
-        if i > 0 and i % (num_rollouts / 10) == 0:
+        sess.run(train_op)
+        # Test every 10% of training progress.
+        if i > 0 and i % (num_rollouts / 10) == 0 and FLAGS.test_eps:
             eps = 0
             total_rewards = 0
             sess.run(env_reset)
@@ -190,8 +175,7 @@ def train(env, num_actions):
                 outp = sess.run(rollout_outputs)
                 r, d = outp[-3], outp[-1]
                 total_rewards += np.sum(r[:-1])
-                if np.sum(d) > 0:
-                    sess.run(env_reset)
+                if np.sum(d[:-1]) > 0:
                     eps += 1
             print("Average Reward: {:.2f}".format(total_rewards/FLAGS.test_eps))
 
@@ -224,8 +208,7 @@ def test(env, num_actions):
         outp = sess.run(rollout_outputs)
         r, d = outp[-3], outp[-1]
         total_rewards += np.sum(r[:-1])
-        if np.sum(d) > 0:
-            sess.run(env_reset)
+        if np.sum(d[:-1]) > 0:
             eps += 1
     print("Average Reward: {:.2f}".format(total_rewards/FLAGS.test_eps))
 
