@@ -3,8 +3,12 @@ import time
 
 import tensorflow as tf
 import numpy as np
-from tfenv import TFEnv
+
 import gym
+
+from preprocessing import atari_preprocess
+
+from pyprocess import PyProcess
 
 nest = tf.contrib.framework.nest
 flags = tf.app.flags
@@ -23,6 +27,10 @@ flags.DEFINE_boolean("training", False, "Boolean for training. Testing if False.
 flags.DEFINE_string("env", 'BreakoutDeterministic-v4', "Gym environment.")
 flags.DEFINE_string("model_directory", './models/', "Model directory.")
 
+SPECS = {
+    'reset': (tf.float32, [84, 84, 4]),
+    'step': ([tf.float32, tf.float32, tf.bool], [[84, 84, 4], [], []])}
+
 def torso(input_, num_actions):
     with tf.variable_scope("torso", reuse=tf.AUTO_REUSE):
         x = tf.expand_dims(input_, 0)
@@ -32,43 +40,40 @@ def torso(input_, num_actions):
                              strides=(2, 2), activation=tf.nn.relu)
         x = tf.reshape(x, [-1, 9 * 9 * 32])
         x = tf.contrib.layers.fully_connected(x, 256, activation_fn=tf.nn.relu)
-        logits = tf.contrib.layers.fully_connected(x, num_actions, activation_fn=None)
+        logits = tf.contrib.layers.fully_connected(
+            x, num_actions, activation_fn=None)
         action = tf.multinomial(logits, num_samples=1, output_dtype=tf.int32)
         action = tf.squeeze(action)
         value = tf.contrib.layers.fully_connected(x, 1, activation_fn=None)
         value = tf.squeeze(value)
     return action, logits, value
 
+
 def rollout(env, num_actions):
-    init_obs = env.obs.read_value()
+    init_obs = env.reset()
     init_a, init_logit, init_v = torso(init_obs, num_actions)
     init_r = tf.zeros([], dtype=tf.float32)
     init_d = tf.constant(False, dtype=tf.bool)
+    # Dummy that should technically be an env step at start of episode.
+    next_obs = tf.identity(init_obs)
 
     def create_state(t):
         with tf.variable_scope(None, default_name='state'):
-            return tf.get_local_variable(t.op.name, initializer=t, use_resource=True)
+            return tf.get_local_variable(
+                t.op.name, initializer=t, use_resource=True)
 
     # Persistent variables.
     persistent_state = nest.map_structure(
-        create_state, (init_obs, init_a, init_logit, init_r, init_v, init_d)
+        create_state, (next_obs, init_a, init_logit, init_r, init_v, init_d)
         )
 
-    reset_persistent_state = nest.map_structure(
-        lambda p, i: p.assign(i), persistent_state,
-        (init_obs, init_a, init_logit, init_r, init_v, init_d)
-        )
-
-    first_values = nest.map_structure(lambda v: v.read_value(), persistent_state)
+    first_values = nest.map_structure(
+        lambda v: v.read_value(), persistent_state)
 
     def step(input_, unused_i):
         obs = input_[0]
         action_, logit_, value_ = torso(obs, num_actions)
-        env_step = env.step(action_)
-        with tf.control_dependencies([env_step]):
-            obs_ = env.obs.read_value()
-            r_ = env.reward.read_value()
-            d_ = env.done.read_value()
+        obs_, r_, d_ = env.step(action_)
         return obs_, action_, logit_, r_, value_, d_
 
     outputs = tf.scan(
@@ -87,7 +92,8 @@ def rollout(env, num_actions):
             lambda first, rest: tf.concat([[first], rest], axis=0),
             first_values, outputs)
 
-    return full_outputs, reset_persistent_state
+    return full_outputs
+
 
 def optimisation(rollout_outputs):
     # All inputs are to be subset, but need last elements of values
@@ -104,7 +110,7 @@ def optimisation(rollout_outputs):
         processed_rewards = tf.clip_by_value(processed_rewards, -1, 1)
         processed_rewards = tf.reverse(processed_rewards, axis=[0])
         reversed_dones = tf.reverse(dones, axis=[0])
-        bootstrap_value = values[-1] * tf.to_float(~dones[-1])
+        bootstrap_value = values[-1]
         discounted_reward = tf.scan(
             lambda R, v: v[0] + tf_gamma * R * tf.to_float(~v[1]),
             [processed_rewards, reversed_dones],
@@ -120,9 +126,11 @@ def optimisation(rollout_outputs):
     advantages = discounted_targets - values
 
     def policy_gradient_loss(logits, actions, advantages):
-        cross_entropy_per_timestep = tf.nn.sparse_softmax_cross_entropy_with_logits(
-            logits=logits, labels=actions)
-        policy_gradient_per_timestep = cross_entropy_per_timestep * tf.stop_gradient(advantages)
+        cross_entropy_per_timestep = \
+            tf.nn.sparse_softmax_cross_entropy_with_logits(
+                logits=logits, labels=actions)
+        policy_gradient_per_timestep = \
+            cross_entropy_per_timestep * tf.stop_gradient(advantages)
         return tf.reduce_sum(policy_gradient_per_timestep)
 
     def advantage_loss(advantages):
@@ -140,29 +148,29 @@ def optimisation(rollout_outputs):
     loss += FLAGS.beta_e * entropy_loss(logits)
 
     optimiser = tf.train.RMSPropOptimizer(
-        learning_rate=FLAGS.learning_rate, decay=FLAGS.rms_decay, epsilon=FLAGS.rms_epsilon)
+        learning_rate=FLAGS.learning_rate, decay=FLAGS.rms_decay,
+        epsilon=FLAGS.rms_epsilon)
 
     gradients = tf.gradients(loss, tf.trainable_variables())
     if FLAGS.grad_clip > 0:
         gradients, _ = tf.clip_by_global_norm(gradients, FLAGS.grad_clip)
 
-    train_op = optimiser.apply_gradients(zip(gradients, tf.trainable_variables()))
+    train_op = optimiser.apply_gradients(
+        zip(gradients, tf.trainable_variables()))
 
     return train_op
 
 
 def train(env, num_actions):
-    rollout_outputs, reset_persistent_state = rollout(env, num_actions)
+    rollout_outputs = rollout(env, num_actions)
     train_op = optimisation(rollout_outputs[1:])
-    with tf.control_dependencies(nest.flatten(reset_persistent_state)):
-        env_reset = env.reset()
+
     # Train
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
 
     start_time = time.time()
-    sess.run(env_reset)
     num_rollouts = FLAGS.train_steps//FLAGS.unroll_length
     for i in range(num_rollouts + 1):
         sess.run(train_op)
@@ -170,16 +178,22 @@ def train(env, num_actions):
         if i > 0 and i % (num_rollouts / 10) == 0 and FLAGS.test_eps:
             eps = 0
             total_rewards = 0
-            sess.run(env_reset)
-            while eps < FLAGS.test_eps:
+            commenced = False
+            # Instead of resetting environment, we wait until current episode
+            # ends, and then commence tracking as normal.
+            while eps < FLAGS.test_eps + 1:
                 outp = sess.run(rollout_outputs)
                 r, d = outp[-3], outp[-1]
-                total_rewards += np.sum(r[:-1])
+                if commenced:
+                    total_rewards += np.sum(r[:-1])
                 if np.sum(d[:-1]) > 0:
+                    commenced = True
                     eps += 1
-            print("Average Reward: {:.2f}".format(total_rewards/FLAGS.test_eps))
+            print("Average Reward: {:.2f}".format(
+                total_rewards / FLAGS.test_eps))
 
-    print("Training completed. Time taken: {:.2f}".format(time.time() - start_time))
+    print("Training completed. Time taken: {:.2f}".format(
+        time.time() - start_time))
 
     if not os.path.exists(FLAGS.model_directory):
         os.mkdir(FLAGS.model_directory)
@@ -187,10 +201,9 @@ def train(env, num_actions):
     saver = tf.train.Saver(tf.trainable_variables())
     saver.save(sess, FLAGS.model_directory + 'model.checkpoint')
 
+
 def test(env, num_actions):
-    rollout_outputs, reset_persistent_state = rollout(env, num_actions)
-    with tf.control_dependencies(nest.flatten(reset_persistent_state)):
-        env_reset = env.reset()
+    rollout_outputs = rollout(env, num_actions)
 
     sess = tf.Session()
     sess.run(tf.global_variables_initializer())
@@ -203,7 +216,6 @@ def test(env, num_actions):
 
     eps = 0
     total_rewards = 0
-    sess.run(env_reset)
     while eps < FLAGS.test_eps:
         outp = sess.run(rollout_outputs)
         r, d = outp[-3], outp[-1]
@@ -212,17 +224,25 @@ def test(env, num_actions):
             eps += 1
     print("Average Reward: {:.2f}".format(total_rewards/FLAGS.test_eps))
 
+
 def main(_):
     env_ = gym.make(FLAGS.env)
     num_actions = env_.action_space.n
-    env = TFEnv(env_)
+    env_ = atari_preprocess(env_)
+    env_.specs = SPECS
+    env = PyProcess(env_)
+    env.start()
 
     if FLAGS.training:
-        train(env, num_actions)
+        train(env.proxy, num_actions)
     else:
         if not os.path.exists(FLAGS.model_directory):
-            raise ValueError('Model directory does not exist.')
-        test(env, num_actions)
+            print('Model directory does not exist. Exiting.')
+        else:
+            test(env.proxy, num_actions)
+
+    env.close()
+
 
 if __name__ == '__main__':
     tf.app.run()
