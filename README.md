@@ -1,5 +1,5 @@
 # A3C
-TF A3C, more of a prototypical nature.
+TF A3C.
 
 The repository contains: `a2c.py`, which is A2C using [`tf.scan()`][tf-scan] for rollouts.
 
