@@ -82,12 +82,13 @@ class LifeLossAndResetDoneWrapper(Wrapper):
     def step(self, action):
         obs, reward, done, info = self.env.step(action)
         current_lives = self.env.unwrapped.ale.lives()
+        true_done = done
         if done:
             self.env.reset()
         elif current_lives < self._current_lives:
             done = True
         self._current_lives = current_lives
-        return obs, reward, done
+        return obs, reward, done, true_done
 
     def reset(self):
         obs = self.env.reset()
@@ -110,8 +111,8 @@ class ResetOnDoneWrapper(Wrapper):
         return obs
 
 
-def atari_preprocess(env):
-    env = NoopOnResetWrapper(env)
+def atari_preprocess(env, noop=30):
+    env = NoopOnResetWrapper(env, noop=noop)
     env = ObsWrapper(env)
     env = RewardFloatWrapper(env)
     env = FrameStackWrapper(env)

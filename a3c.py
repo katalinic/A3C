@@ -27,11 +27,12 @@ flags.DEFINE_float("grad_clip", 40., "Gradient clipping norm.")
 flags.DEFINE_integer("train_steps", 40000000, "Training steps.")
 flags.DEFINE_integer("max_steps", 80000000, "Max steps for LR decay.")
 flags.DEFINE_integer("test_eps", 30, "Number of test episodes.")
+flags.DEFINE_integer("seed", 30, "Random seed.")
 
 GLOBAL_NET_SCOPE = 'Global_Net'
 SPECS = {
     'reset': (tf.float32, [84, 84, 4]),
-    'step': ([tf.float32, tf.float32, tf.bool], [[84, 84, 4], [], []])}
+    'step': ([tf.float32, tf.float32, tf.bool, tf.bool], [[84, 84, 4], [], [], []])}
 
 
 def torso(input_, num_actions):
@@ -47,6 +48,7 @@ def torso(input_, num_actions):
             x, num_actions, activation_fn=None)
         action = tf.multinomial(
             logits, num_samples=1, output_dtype=tf.int32)
+        logits = tf.squeeze(logits)
         action = tf.squeeze(action)
         value = tf.contrib.layers.fully_connected(x, 1, activation_fn=None)
         value = tf.squeeze(value)
@@ -58,6 +60,7 @@ def rollout(env, num_actions):
     init_a, init_logit, init_v = torso(init_obs, num_actions)
     init_r = tf.zeros([], dtype=tf.float32)
     init_d = tf.constant(False, dtype=tf.bool)
+    init_true_d = tf.constant(False, dtype=tf.bool)
     # Dummy that should technically be an env step at start of episode.
     next_obs = tf.identity(init_obs)
 
@@ -67,9 +70,8 @@ def rollout(env, num_actions):
                 t.op.name, initializer=t, use_resource=True)
 
     # Persistent variables.
-    persistent_state = nest.map_structure(
-        create_state, (next_obs, init_a, init_logit, init_r, init_v, init_d)
-        )
+    persistent_state = nest.map_structure(create_state,
+    (next_obs, init_a, init_logit, init_r, init_v, init_d, init_true_d))
 
     first_values = nest.map_structure(
         lambda v: v.read_value(), persistent_state)
@@ -77,8 +79,8 @@ def rollout(env, num_actions):
     def step(input_, unused_i):
         obs = input_[0]
         action_, logit_, value_ = torso(obs, num_actions)
-        obs_, r_, d_ = env.step(action_)
-        return obs_, action_, logit_, r_, value_, d_
+        obs_, r_, d_, td_ = env.step(action_)
+        return obs_, action_, logit_, r_, value_, d_, td_
 
     outputs = tf.scan(
         step,
@@ -105,7 +107,6 @@ def loss_function(rollout_outputs):
     actions, logits, rewards = nest.map_structure(
         lambda t: t[:-1], rollout_outputs[:-2])
     values, dones = rollout_outputs[-2:]
-    logits = tf.squeeze(logits)
 
     # Discounted reward calculation.
     def discount(rewards, gamma, values, dones):
@@ -177,7 +178,7 @@ class Worker():
             agent_vars = tf.get_collection(
                 tf.GraphKeys.TRAINABLE_VARIABLES,
                 scope=tf.get_variable_scope().name)
-            loss = loss_function(self.rollout_outputs[1:])
+            loss = loss_function(self.rollout_outputs[1:-1])
             train_op, sync_op = gradient_exchange(
                 loss, agent_vars, global_vars, optimiser)
             global_step_increment = tf.assign_add(
@@ -207,7 +208,7 @@ class Worker():
         # ends, and then commence tracking as normal.
         while eps < FLAGS.test_eps + 1:
             outp = sess.run(self.rollout_outputs)
-            r, d = outp[-3], outp[-1]
+            r, d = outp[-4], outp[-1]
             if commenced:
                 total_rewards += np.sum(r[:-1])
             if np.sum(d[:-1]) > 0:
@@ -216,7 +217,11 @@ class Worker():
         print("Average Reward: {:.2f}".format(total_rewards / FLAGS.test_eps))
 
 
-def train():
+def train(seed=0):
+    # Set random seeds.
+    tf.set_random_seed(seed)
+    np.random.seed(seed)
+
     env_ = gym.make(FLAGS.env)
     num_actions = env_.action_space.n
     with tf.variable_scope(GLOBAL_NET_SCOPE):
@@ -238,7 +243,10 @@ def train():
     envs = []
     for i in range(FLAGS.num_workers):
         env_ = gym.make(FLAGS.env)
-        env_ = atari_preprocess(env_)
+        env_.seed(seed + i)
+        # Assuming use of an environment with built-in frame skip of 4,
+        # this serves as an approximation to the noop of 30.
+        env_ = atari_preprocess(env_, noop=30 // 4 + 1)
         env_.specs = SPECS
         proxy_env = PyProcess(env_)
         proxy_env.start()
@@ -251,7 +259,11 @@ def train():
                         GLOBAL_NET_SCOPE, optimiser, global_step)
         workers.append(worker)
 
-    sess = tf.Session()
+    config = tf.ConfigProto(
+        intra_op_parallelism_threads=1,
+        inter_op_parallelism_threads=FLAGS.num_workers)
+    sess = tf.Session(config=config)
+    # sess = tf.Session()
     sess.run(tf.global_variables_initializer())
     sess.run(tf.local_variables_initializer())
 
@@ -269,7 +281,7 @@ def train():
 
 
 def main(_):
-    train()
+    train(FLAGS.seed)
 
 
 if __name__ == '__main__':
