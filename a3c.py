@@ -25,32 +25,40 @@ flags.DEFINE_float("rms_decay", 0.99, "RMS decay.")
 flags.DEFINE_float("rms_epsilon", 1e-1, "RMS epsilon.")
 flags.DEFINE_float("grad_clip", 40., "Gradient clipping norm.")
 flags.DEFINE_integer("train_steps", 40000000, "Training steps.")
+flags.DEFINE_integer("test_every", 1000000, "Test every x training steps.")
 flags.DEFINE_integer("max_steps", 80000000, "Max steps for LR decay.")
 flags.DEFINE_integer("test_eps", 30, "Number of test episodes.")
-flags.DEFINE_integer("seed", 30, "Random seed.")
+flags.DEFINE_integer("seed", 1, "Random seed.")
 
 GLOBAL_NET_SCOPE = 'Global_Net'
 SPECS = {
     'reset': (tf.float32, [84, 84, 4]),
-    'step': ([tf.float32, tf.float32, tf.bool, tf.bool], [[84, 84, 4], [], [], []])}
+    'step': ([tf.float32, tf.float32, tf.bool, tf.bool],
+             [[84, 84, 4], [], [], []])}
 
 
 def torso(input_, num_actions):
+    initializer = tf.contrib.layers.variance_scaling_initializer(
+        factor=1.0, mode='FAN_IN', uniform=True)
     with tf.variable_scope("torso", reuse=tf.AUTO_REUSE):
         x = tf.expand_dims(input_, 0)
-        x = tf.layers.conv2d(x, filters=16, kernel_size=[8, 8],
-                             strides=(4, 4), activation=tf.nn.relu)
-        x = tf.layers.conv2d(x, filters=32, kernel_size=[4, 4],
-                             strides=(2, 2), activation=tf.nn.relu)
-        x = tf.reshape(x, [-1, 9 * 9 * 32])
-        x = tf.contrib.layers.fully_connected(x, 256, activation_fn=tf.nn.relu)
-        logits = tf.contrib.layers.fully_connected(
-            x, num_actions, activation_fn=None)
+        x = tf.layers.conv2d(x, filters=32, kernel_size=8, strides=4,
+            activation=tf.nn.relu, kernel_initializer=initializer)
+        x = tf.layers.conv2d(x, filters=64, kernel_size=4, strides=2,
+            activation=tf.nn.relu, kernel_initializer=initializer)
+        x = tf.layers.conv2d(x, filters=64, kernel_size=3, strides=1,
+            activation=tf.nn.relu, kernel_initializer=initializer)
+        x = tf.reshape(x, [-1, 7 * 7 * 64])
+        x = tf.layers.dense(x, 512, activation=tf.nn.relu,
+            kernel_initializer=initializer)
+        logits = tf.layers.dense(x, num_actions, activation=None,
+            kernel_initializer=initializer)
         action = tf.multinomial(
             logits, num_samples=1, output_dtype=tf.int32)
         logits = tf.squeeze(logits)
         action = tf.squeeze(action)
-        value = tf.contrib.layers.fully_connected(x, 1, activation_fn=None)
+        value = tf.layers.dense(x, 1, activation=None,
+            kernel_initializer=initializer)
         value = tf.squeeze(value)
     return action, logits, value
 
@@ -71,7 +79,7 @@ def rollout(env, num_actions):
 
     # Persistent variables.
     persistent_state = nest.map_structure(create_state,
-    (next_obs, init_a, init_logit, init_r, init_v, init_d, init_true_d))
+        (next_obs, init_a, init_logit, init_r, init_v, init_d, init_true_d))
 
     first_values = nest.map_structure(
         lambda v: v.read_value(), persistent_state)
@@ -102,8 +110,7 @@ def rollout(env, num_actions):
 
 
 def loss_function(rollout_outputs):
-    # All inputs are to be subset, but need last elements of values
-    # and done for discounted reward calculation.
+    # Subset inputs.
     actions, logits, rewards = nest.map_structure(
         lambda t: t[:-1], rollout_outputs[:-2])
     values, dones = rollout_outputs[-2:]
@@ -188,15 +195,14 @@ class Worker():
 
     def work(self, sess, global_step, coord=None):
         start = time.time()
-        t, T = 0, 0
-        num_rollouts = FLAGS.train_steps // FLAGS.unroll_length
-        rollouts_per_worker = num_rollouts // FLAGS.num_workers
+        t, T, test_epoch = 0, 0, 0
         while not coord.should_stop() and T < FLAGS.train_steps:
             _, T = sess.run([self.train_op, global_step])
             t += 1
-            # Test every 10% of training progress.
-            if t % (rollouts_per_worker // 10) == 0 and FLAGS.test_eps:
+            # Test every 1000000 training steps.
+            if T // FLAGS.test_every > test_epoch and FLAGS.test_eps:
                 self._test(sess)
+                test_epoch = T // FLAGS.test_every
         print(time.time() - start)
 
     def _test(self, sess):
