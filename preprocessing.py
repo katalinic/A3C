@@ -75,27 +75,6 @@ class FrameStackWrapper(Wrapper):
         return self._convert_to_obs()
 
 
-class LifeLossAndResetDoneWrapper(Wrapper):
-    def __init__(self, env):
-        super().__init__(env)
-
-    def step(self, action):
-        obs, reward, done, info = self.env.step(action)
-        current_lives = self.env.unwrapped.ale.lives()
-        true_done = done
-        if done:
-            self.env.reset()
-        elif current_lives < self._current_lives:
-            done = True
-        self._current_lives = current_lives
-        return obs, reward, done, true_done
-
-    def reset(self):
-        obs = self.env.reset()
-        self._current_lives = self.env.unwrapped.ale.lives()
-        return obs
-
-
 class ResetOnDoneWrapper(Wrapper):
     def __init__(self, env):
         super().__init__(env)
@@ -104,18 +83,30 @@ class ResetOnDoneWrapper(Wrapper):
         obs, reward, done, info = self.env.step(action)
         if done:
             self.env.reset()
-        return obs, reward, done, info
+        return obs, reward, done
 
     def reset(self):
         obs = self.env.reset()
         return obs
 
 
-def atari_preprocess(env, noop=30):
+class EnvOutputOnResetWrapper(Wrapper):
+    def __init__(self, env):
+        super().__init__(env)
+
+    def step(self, action):
+        return self.env.step(action)
+
+    def reset(self):
+        obs = self.env.reset()
+        return obs, np.float32(0), False
+
+
+def atari_preprocess(env, noop=30 // 4):
     env = NoopOnResetWrapper(env, noop=noop)
     env = ObsWrapper(env)
     env = RewardFloatWrapper(env)
     env = FrameStackWrapper(env)
-    # env = ResetOnDoneWrapper(env)
-    env = LifeLossAndResetDoneWrapper(env)
+    env = ResetOnDoneWrapper(env)
+    env = EnvOutputOnResetWrapper(env)
     return env
