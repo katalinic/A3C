@@ -1,7 +1,7 @@
 # A3C
 TF A3C.
 
-The repository contains an implementation of A3C.
+The repository contains an implementation of A3C. The most recent refactoring still needs testing.
 
 The environments are placed into subprocesses with communication done via pipes, and embedded into the TensorFlow graph
 via [`tf.py_func()`][tf-pyfunc]. The style of the rollouts (agent-environment interaction using [`tf.scan()`][tf-scan])
