@@ -25,6 +25,9 @@ flags.DEFINE_float("gamma", 0.99, "Discount factor.")
 flags.DEFINE_float("beta_v", 0.5, "Value loss coefficient.")
 flags.DEFINE_float("beta_e", 0.01, "Entropy loss coefficient.")
 flags.DEFINE_float("init_lr", 7e-4, "Initial learning rate.")
+flags.DEFINE_float("rms_decay", 0.99, "RMSProp decay.")
+flags.DEFINE_float("rms_epsilon", 0.1, "RMSProp epsilon.")
+flags.DEFINE_float("grad_clip", 40., "Gradient clipping norm.")
 
 # Model saving.
 flags.DEFINE_string("model_directory", './models/', "Model directory.")
@@ -55,9 +58,14 @@ def train(constants):
             "global_step", [], tf.int32,
             initializer=tf.constant_initializer(0, dtype=tf.int32),
             trainable=False)
-    # Optimiser.
-    opt = tf.train.AdamOptimizer(learning_rate=constants.init_lr)
-    shared_optimisers = [opt]
+    lr = tf.train.polynomial_decay(
+        learning_rate=constants.init_lr,
+        global_step=global_step,
+        decay_steps=80000000,
+        end_learning_rate=0.)
+    optimiser = tf.train.RMSPropOptimizer(
+        learning_rate=lr, decay=constants.rms_decay,
+        epsilon=constants.rms_epsilon)
 
     # Create envs.
     print('Creating environments.')
@@ -77,14 +85,15 @@ def train(constants):
     print('Creating workers.')
     workers = []
     for i in range(constants.num_workers):
-        worker = Worker(envs[i].proxy, agents[i], 'W_{}'.format(i), constants)
+        worker_scope = 'W_{}'.format(i)
+        worker = Worker(envs[i].proxy, agents[i], worker_scope, constants)
         worker.build_rollout()
         worker.build_loss()
         worker.build_optimisation(
             global_step,
-            optimisers=shared_optimisers,
-            from_scopes=None,
-            to_scopes=[GLOBAL_SCOPE])
+            optimiser=optimiser,
+            from_scope=worker_scope,
+            to_scope=GLOBAL_SCOPE)
         workers.append(worker)
 
     sess = tf.Session()

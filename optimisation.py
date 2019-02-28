@@ -47,12 +47,9 @@ def loss_calculation(rollout_outputs, action_space, constants):
     return return_loss + policy_loss
 
 
-def gradient_exchange(loss, from_scope, to_scope, optimiser):
-    from_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-                                  scope=from_scope)
-    to_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES,
-                                scope=to_scope)
+def gradient_exchange(loss, from_vars, to_vars, optimiser, constants):
     gradients = tf.gradients(loss, from_vars)
-    gradients, _ = tf.clip_by_global_norm(gradients, 40.)
+    if constants.grad_clip > 0:
+        gradients, _ = tf.clip_by_global_norm(gradients, constants.grad_clip)
     train_op = optimiser.apply_gradients(zip(gradients, to_vars))
     return train_op
