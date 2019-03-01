@@ -12,6 +12,7 @@ import tensorflow as tf
 
 nest = tf.contrib.framework.nest
 
+
 class _TFProxy:
     def __init__(self, type_):
         self._type = type_
@@ -24,9 +25,6 @@ class _TFProxy:
             dtypes, shapes = self._type.specs[name]
 
             def py_call(*args):
-                # self._out.send(args)
-                # result = self._out.recv()
-                # return result
                 try:
                     self._out.send(args)
                     result = self._out.recv()

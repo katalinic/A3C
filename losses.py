@@ -5,7 +5,7 @@ def entropy(logits):
     policy = tf.nn.softmax(logits)
     log_policy = tf.nn.log_softmax(logits)
     entropy_per_timestep = - tf.reduce_sum(policy * log_policy, axis=1)
-    return tf.reduce_sum(-entropy_per_timestep)
+    return tf.reduce_sum(entropy_per_timestep)
 
 
 def policy_gradient(logits, actions, advantages):
@@ -35,6 +35,6 @@ def discount(rewards, discounts, bootstrap_value):
     return tf.stop_gradient(discounted)
 
 
-def advantage_loss(advantages):
+def value_loss(advantages):
     advantage_loss_per_timestep = 0.5 * tf.square(advantages)
     return tf.reduce_sum(advantage_loss_per_timestep)

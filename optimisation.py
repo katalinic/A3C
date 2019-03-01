@@ -1,17 +1,11 @@
 import tensorflow as tf
 
-from losses import advantage_loss, compute_return, policy_gradient, entropy
+from losses import value_loss, compute_return, policy_gradient, entropy
 
 nest = tf.contrib.framework.nest
 
 
-def policy_loss_calc(logits, actions, advantages, constants):
-    policy_loss = policy_gradient(logits, actions, advantages)
-    entropy_loss = constants.beta_e * entropy(logits)
-    return policy_loss + entropy_loss
-
-
-def advantage_calc(values, rewards, discounts):
+def advantage_calc(rewards, discounts, values):
     true_returns = compute_return(rewards, discounts, values)
     return true_returns - values[:-1]
 
@@ -39,12 +33,15 @@ def loss_calculation(rollout_outputs, action_space, constants):
     gamma = tf.constant(constants.gamma, tf.float32)
     discounts = tf.to_float(~dones) * gamma
 
-    advantages = advantage_calc(values, rewards, discounts)
-    return_loss = constants.beta_v * advantage_loss(advantages)
+    advantages = advantage_calc(rewards, discounts, values)
+    value_pred_loss = value_loss(advantages)
 
-    policy_loss = policy_loss_calc(
-        agent_outputs.logits, agent_outputs.action, advantages, constants)
-    return return_loss + policy_loss
+    pg_loss = policy_gradient(
+        agent_outputs.logits, agent_outputs.action, advantages)
+    entropy_loss = entropy(agent_outputs.logits)
+    return (pg_loss
+            - constants.beta_e * entropy_loss
+            + constants.beta_v * value_pred_loss)
 
 
 def gradient_exchange(loss, from_vars, to_vars, optimiser, constants):

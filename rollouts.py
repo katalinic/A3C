@@ -29,12 +29,11 @@ def rollout(env, agent, unroll_length):
 
         agent_output = agent.build(prev_env_output, prev_agent_state)
 
-        next_obs, reward, done = env.step(agent_output.action)
+        env_output = EnvOutput(*env.step(agent_output.action))
 
         agent_state = agent.update_state(
-            agent_output, prev_agent_state, done)
+            agent_output, prev_agent_state, env_output.done)
 
-        env_output = EnvOutput(next_obs, reward, done)
         return env_output, agent_state, agent_output
 
     outputs = tf.scan(
