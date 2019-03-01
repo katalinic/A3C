@@ -17,16 +17,16 @@ flags.DEFINE_integer("unroll_length", 5, "Number of steps per rollout.")
 flags.DEFINE_integer("train_steps", 40000000, "Training steps.")
 flags.DEFINE_integer("test_every", 1000000, "Test every x training steps.")
 flags.DEFINE_integer("test_eps", 30, "Number of test episodes.")
-flags.DEFINE_integer("seed", 1, "Random seed.")
+flags.DEFINE_integer("seed", 8, "Random seed.")
 flags.DEFINE_boolean("eval_mode", True, "True if evaluating performance.")
 
 # Optimisation.
 flags.DEFINE_float("gamma", 0.99, "Discount factor.")
 flags.DEFINE_float("beta_v", 0.5, "Value loss coefficient.")
 flags.DEFINE_float("beta_e", 0.01, "Entropy loss coefficient.")
-flags.DEFINE_float("init_lr", 7e-4, "Initial learning rate.")
+flags.DEFINE_float("init_lr", 1e-4, "Initial learning rate.")
 flags.DEFINE_float("rms_decay", 0.99, "RMSProp decay.")
-flags.DEFINE_float("rms_epsilon", 0.1, "RMSProp epsilon.")
+flags.DEFINE_float("rms_epsilon", 1e-5, "RMSProp epsilon.")
 flags.DEFINE_float("grad_clip", 40., "Gradient clipping norm.")
 
 # Model saving.
